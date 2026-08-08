@@ -6,6 +6,17 @@ A = function(...)
 end
 
 describe("files library", function()
+  describe("path normalization", function()
+    it("normalizes path on windows or leaves untouched on unix", function()
+      if vim.fn.has("win32") == 1 then
+        assert.equal("C:\\foo\\bar", files.path.normalize("c:/foo/bar"))
+        assert.equal("D:\\test\\file.lua", files.path.normalize("d:\\test/file.lua"))
+      else
+        assert.equal("/root/test_a", files.path.normalize("/root/test_a"))
+      end
+    end)
+  end)
+
   describe("parsing directory tree from files", function()
     it("places files under the root", function()
       local root = "/root"

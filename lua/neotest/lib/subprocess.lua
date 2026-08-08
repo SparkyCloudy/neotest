@@ -66,10 +66,6 @@ function neotest.lib.subprocess.init()
       require("nio").sleep,
       require("plenary.path").new,
     }
-    local has_ts, ts = pcall(require, "nvim-treesitter")
-    if has_ts and ts.setup then
-      table.insert(plugin_funcs, ts.setup)
-    end
 
     for _, plugin_func in ipairs(plugin_funcs) do
       local root = neotest.lib.subprocess.resolve_plugin_root(plugin_func)
@@ -170,17 +166,7 @@ end
 function neotest.lib.subprocess.add_paths_to_rtp(paths)
   local rtp = nio.fn.rpcrequest(child_chan, "nvim_get_option_value", "runtimepath", {})
   for _, path in ipairs(paths) do
-    if type(path) == "function" then
-      local ok, root = pcall(neotest.lib.subprocess.resolve_plugin_root, path)
-      if ok and root then
-        path = root
-      else
-        path = nil
-      end
-    end
-    if path then
-      rtp = rtp .. "," .. path
-    end
+    rtp = rtp .. "," .. path
   end
   logger.debug("Setting rtp in subprocess", rtp)
   nio.fn.rpcrequest(child_chan, "nvim_set_option_value", "runtimepath", rtp, {})
