@@ -3,8 +3,6 @@ local logger = require("neotest.logging")
 local nio = require("nio")
 local config = require("neotest.config")
 
-
-
 ---@class neotest.consumers.watch.Watcher
 ---@field lsp_client nio.lsp.Client
 ---@field autocmd_id? string
