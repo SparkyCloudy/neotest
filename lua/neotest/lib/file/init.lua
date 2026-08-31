@@ -430,7 +430,7 @@ function neotest.lib.files.match_root_pattern(...)
       for _, pattern in ipairs(patterns) do
         for _, p in ipairs(nio.fn.glob(joinpath(path, pattern), true, true)) do
           if neotest.lib.files.exists(p) then
-            return path
+            return neotest.lib.files.path.normalize(path)
           end
         end
       end

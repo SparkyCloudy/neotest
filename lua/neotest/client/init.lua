@@ -328,6 +328,7 @@ function neotest.Client:_get_adapter(position_id, adapter_id)
   end
 
   assert(position_id)
+  position_id = lib.files.path.normalize(position_id)
 
   local function find_adapter()
     for a_id, adapter in pairs(self._adapters) do
@@ -336,9 +337,13 @@ function neotest.Client:_get_adapter(position_id, adapter_id)
       end
 
       local root = self._state:positions(a_id)
+      local norm_root_path = root and lib.files.path.normalize(root:data().path)
       if
-        (not root or vim.startswith(position_id, root:data().path))
-        and (lib.files.is_dir(position_id) or adapter.is_test_file(position_id))
+        (not norm_root_path or vim.startswith(position_id, norm_root_path))
+        and (
+          lib.files.is_dir(position_id)
+          or (adapter.is_test_file and adapter.is_test_file(position_id))
+        )
       then
         return a_id, adapter
       end
@@ -405,6 +410,7 @@ function neotest.Client:_start(args)
     end
 
     local file_path = vim.fn.fnamemodify(ev.file, ":p")
+    file_path = lib.files.path.normalize(file_path)
 
     if not lib.files.exists(file_path) then
       return
@@ -418,7 +424,8 @@ function neotest.Client:_start(args)
           if not root then
             return
           end
-          if vim.startswith(file_path, root:data().path) then
+          local norm_root = lib.files.path.normalize(root:data().path)
+          if vim.startswith(file_path, norm_root) then
             logger.info(
               "Not updating positions for",
               file_path,
@@ -432,7 +439,10 @@ function neotest.Client:_start(args)
           return
         end
         --- Provide file paths parent because we could be outside of the root dir.
-        local root = adapter.root(lib.files.parent(file_path)) or vim.loop.cwd()
+        local root = lib.files.path.normalize(
+          (adapter.root and adapter.root(lib.files.parent(file_path)))
+            or lib.files.parent(file_path)
+        )
         adapter_id = ("%s:%s"):format(adapter.name, root)
         self._adapters[adapter_id] = adapter
 
@@ -444,7 +454,8 @@ function neotest.Client:_start(args)
       end
       if not self:get_position(file_path, { adapter = adapter_id }) then
         local root = self._state:positions(adapter_id)
-        if config.projects[root and root:data().path or vim.loop.cwd()].discovery.enabled then
+        local project_root = lib.files.path.normalize(root and root:data().path or vim.loop.cwd())
+        if config.projects[project_root].discovery.enabled then
           self:_update_positions(lib.files.parent(file_path), { adapter = adapter_id })
         end
       end
@@ -529,8 +540,8 @@ function neotest.Client:_update_open_buf_positions(adapter_id)
   local adapter = self._adapters[adapter_id]
   for _, bufnr in ipairs(nio.api.nvim_list_bufs()) do
     local name = nio.api.nvim_buf_get_name(bufnr)
-    local file_path = lib.files.path.real(name) or name
-    if adapter.is_test_file(file_path) then
+    local file_path = lib.files.path.real(name) or lib.files.path.normalize(name)
+    if adapter.is_test_file and adapter.is_test_file(file_path) then
       self:_update_positions(file_path, { adapter = adapter_id })
     end
   end
@@ -539,18 +550,27 @@ end
 ---@async
 ---@private
 function neotest.Client:_update_adapters(dir)
+  dir = lib.files.path.normalize(dir)
   local adapters_with_root = lib.files.is_dir(dir)
       and self._adapter_group:adapters_with_root_dir(dir)
     or {}
 
-  local adapters_with_bufs =
-    self._adapter_group:adapters_matching_open_bufs(lib.func_util.map(function(i, entry)
-      return i, entry.root
-    end, adapters_with_root))
+  local existing_roots = lib.func_util.map(function(i, entry)
+    return i, lib.files.path.normalize(entry.root)
+  end, adapters_with_root)
 
-  local root = lib.files.is_dir(dir) and dir or vim.loop.cwd()
-  for _, adapter in ipairs(adapters_with_bufs) do
-    adapters_with_root[#adapters_with_root + 1] = { adapter = adapter, root = root }
+  for a_id, _ in pairs(self._adapters) do
+    local colon_idx = a_id:find(":")
+    if colon_idx then
+      local r = a_id:sub(colon_idx + 1)
+      table.insert(existing_roots, lib.files.path.normalize(r))
+    end
+  end
+
+  local adapters_with_bufs = self._adapter_group:adapters_matching_open_bufs(existing_roots)
+
+  for _, entry in ipairs(adapters_with_bufs) do
+    adapters_with_root[#adapters_with_root + 1] = entry
   end
 
   local found = {}
@@ -563,11 +583,12 @@ function neotest.Client:_update_adapters(dir)
 
   for _, entry in ipairs(adapters_with_root) do
     local adapter = entry.adapter
-    local adapter_id = ("%s:%s"):format(adapter.name, entry.root)
+    local norm_root = lib.files.path.normalize(entry.root)
+    local adapter_id = ("%s:%s"):format(adapter.name, norm_root)
     if not found[adapter_id] then
       self._adapters[adapter_id] = adapter
       found[adapter_id] = true
-      new_adapters[adapter_id] = entry
+      new_adapters[adapter_id] = { adapter = adapter, root = norm_root }
     end
   end
 
